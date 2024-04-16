@@ -1,7 +1,6 @@
 #pragma once
 #include "ObjectPoolTls.h"
 
-
 template <typename T, bool IsConstructorCalled>
 template <typename ... Args>
 ObjectPoolTls<T, IsConstructorCalled>::ObjectPoolTls(int32 initBuckets, Args&&... args)
@@ -9,13 +8,14 @@ ObjectPoolTls<T, IsConstructorCalled>::ObjectPoolTls(int32 initBuckets, Args&&..
 	, _emptyBucketList(nullptr)
 	, _registeredPools{nullptr,}
 	, _registeredPoolsCount(0)
+	, _capacity(0)
+	, _tlsIndex(TlsAlloc())
 {
-
-	_tlsIndex = TlsAlloc();
-
 	for (int32 i = 0; i < initBuckets; i++)
 	{
 		BucketNode* bucket = create_bucket(args...);
+		bucket->next = _head;
+		_head = bucket;
 	}
 }
 
@@ -23,13 +23,13 @@ template <typename T, bool IsConstructorCalled>
 ObjectPoolTls<T, IsConstructorCalled>::~ObjectPoolTls()
 {
 	BucketNode* bucket = _head;
-
+	
 	int32 bkcnt = 0;
 	while (bucket != nullptr)
 	{
 		bkcnt++;
 		BucketNode* bucketNext = bucket->next;
-		Node* node = bucket->node;
+		Node* node = bucket->head;
 		int32 cnt = 0;
 		while (node != nullptr)
 		{
@@ -41,7 +41,7 @@ ObjectPoolTls<T, IsConstructorCalled>::~ObjectPoolTls()
 		delete bucket;
 		bucket = bucketNext;
 	}
-
+	
 	bucket = _emptyBucketList;
 	while (bucket != nullptr)
 	{
@@ -57,30 +57,22 @@ T* ObjectPoolTls<T, IsConstructorCalled>::Alloc(Args&&... args)
 {
 	TlsPool& pool = get_tls_pool();
 
-	Node* ret;
+	Bucket& bucket = pool.useBucket;
+
 	if (pool.useBucket == nullptr)
 	{
-		pool.useBucket = alloc_bucket(args...);
-		ret = pool.useBucket->node;
-		pool.useBucket->node = pool.useBucket->node->next;
+		if (pool.freeBucket == nullptr)
+		{
+			pool.useBucket = alloc_bucket(args...);
+		}
+		else
+		{
+			bucket = pool.freeBucket;
+		}
 	}
-	else if (pool.useBucket->node != nullptr)
-	{
-		ret = pool.useBucket->node;
-		pool.useBucket->node = pool.useBucket->node->next;
-	}
-	else if (pool.freeBucket != nullptr && pool.freeBucket->node != nullptr)
-	{
-		ret = pool.freeBucket->node;
-		pool.freeBucket->node = pool.freeBucket->node->next;
-	}
-	else
-	{
-		return_empty_bucket(pool.useBucket);
-		pool.useBucket = alloc_bucket(args...);
-		ret = pool.useBucket->node;
-		pool.useBucket->node = pool.useBucket->node->next;
-	}
+
+	Node* ret = bucket;
+	bucket = bucket->next;
 
 	if constexpr (IsConstructorCalled == true)
 	{
@@ -97,12 +89,6 @@ void ObjectPoolTls<T, IsConstructorCalled>::Free(T* ptr)
 {
 	TlsPool& pool = get_tls_pool();
 
-	if (pool.freeBucket == nullptr)
-	{
-		WRITE_LOCK(_lock);
-		pool.freeBucket = get_empty_bucket();
-	}
-
 	if constexpr (IsConstructorCalled == true)
 	{
 		ptr->~T(); // º“∏Í¿⁄ »£√‚
@@ -110,10 +96,10 @@ void ObjectPoolTls<T, IsConstructorCalled>::Free(T* ptr)
 
 	Node* node = reinterpret_cast<Node*>(ptr);
 
-	node->next = pool.freeBucket->node;
-	pool.freeBucket->node = node;
-	pool.useCount--;
-	pool.freeSize++;
+	node->next = pool.freeBucket;
+	pool.freeBucket = node;
+	--pool.useCount;
+	++pool.freeSize;
 
 	if (pool.freeSize == BUCKET_SIZE)
 	{
@@ -141,8 +127,8 @@ ObjectPoolTls<T, IsConstructorCalled>::BucketNode* ObjectPoolTls<T, IsConstructo
 			new(ptr)T(args...);
 		}
 
-		ptr->next = bucket->node;
-		bucket->node = ptr;
+		ptr->next = bucket->head;
+		bucket->head = ptr;
 	}
 
 	_capacity += BUCKET_SIZE;
@@ -152,10 +138,9 @@ ObjectPoolTls<T, IsConstructorCalled>::BucketNode* ObjectPoolTls<T, IsConstructo
 template <typename T, bool IsConstructorCalled>
 template <typename... Args>
 typename
-ObjectPoolTls<T, IsConstructorCalled>::BucketNode* ObjectPoolTls<T, IsConstructorCalled>::alloc_bucket(Args&&... args)
+ObjectPoolTls<T, IsConstructorCalled>::Bucket ObjectPoolTls<T, IsConstructorCalled>::alloc_bucket(Args&&... args)
 {
 	WRITE_LOCK(_lock);
-
 	BucketNode* bucket;
 
 	if (_head == nullptr)
@@ -168,21 +153,23 @@ ObjectPoolTls<T, IsConstructorCalled>::BucketNode* ObjectPoolTls<T, IsConstructo
 		_head = _head->next;
 	}
 
+	Bucket ret = bucket->head;
+	bucket->head = nullptr;
+	return_empty_bucket(bucket);
 
-	return bucket;
+	return ret;
 }
 
 template <typename T, bool IsConstructorCalled>
-void ObjectPoolTls<T, IsConstructorCalled>::free_bucket(BucketNode* ptr)
+void ObjectPoolTls<T, IsConstructorCalled>::free_bucket(Bucket ptr)
 {
 	WRITE_LOCK(_lock);
 
-
-	BucketNode* bucket = ptr;
+	BucketNode* bucket = get_empty_bucket();
+	bucket->head = ptr;
 
 	bucket->next = _head;
 	_head = bucket;
-
 }
 
 template <typename T, bool IsConstructorCalled>
@@ -198,10 +185,9 @@ typename ObjectPoolTls<T, IsConstructorCalled>::BucketNode* ObjectPoolTls<T, IsC
 	{
 		bucket = _emptyBucketList;
 		_emptyBucketList = _emptyBucketList->next;
-		bucket->next = nullptr;
 	}
-
-
+	bucket->head = nullptr;
+	bucket->next = nullptr;
 
 	return bucket;
 }
@@ -209,7 +195,6 @@ typename ObjectPoolTls<T, IsConstructorCalled>::BucketNode* ObjectPoolTls<T, IsC
 template <typename T, bool IsConstructorCalled>
 void ObjectPoolTls<T, IsConstructorCalled>::return_empty_bucket(BucketNode* bucket)
 {
-	WRITE_LOCK(_lock);
 	bucket->next = _emptyBucketList;
 	_emptyBucketList = bucket;
 }

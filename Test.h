@@ -2,6 +2,7 @@
 #include <process.h>
 #include "Lock.h"
 #include "ObjectPoolTls.h"
+#include "ObjectPool.h"
 
 #define TEST(dataSize) Test<dataSize> test##dataSize
 
@@ -10,7 +11,7 @@ class Test
 {
 	enum
 	{
-		NUM_THREAD = 12,
+		NUM_THREAD = 8,
 	};
 
 	struct DummyData
@@ -54,12 +55,12 @@ public:
 
 	static void WarmUpPool(DataPtr* arr)
 	{
-		for (int i = 0; i < 300000; i++)
+		for (int i = 0; i < 200000; i++)
 		{
 			arr[i] = pool.Alloc();
 		}
 
-		for (int i = 0; i < 300000; i++)
+		for (int i = 0; i < 200000; i++)
 		{
 			pool.Free(arr[i]);
 		}
@@ -86,7 +87,7 @@ public:
 
 	static unsigned WINAPI BenchmarkPoolAllocFree(void* param)
 	{
-		DataPtr* arr = new DataPtr[300000];
+		DataPtr* arr = new DataPtr[200000];
 		LARGE_INTEGER start;
 		LARGE_INTEGER end;
 
