@@ -6,7 +6,7 @@ template <typename ... Args>
 ObjectPoolTls<T, IsConstructorCalled>::ObjectPoolTls(int32 initBuckets, Args&&... args)
 	: _head(nullptr)
 	, _emptyBucketList(nullptr)
-	, _registeredPools{nullptr,}
+	, _registeredPools{ nullptr, }
 	, _registeredPoolsCount(0)
 	, _capacity(0)
 	, _tlsIndex(TlsAlloc())
@@ -23,7 +23,7 @@ template <typename T, bool IsConstructorCalled>
 ObjectPoolTls<T, IsConstructorCalled>::~ObjectPoolTls()
 {
 	BucketNode* bucket = _head;
-	
+
 	int32 bkcnt = 0;
 	while (bucket != nullptr)
 	{
@@ -41,7 +41,7 @@ ObjectPoolTls<T, IsConstructorCalled>::~ObjectPoolTls()
 		delete bucket;
 		bucket = bucketNext;
 	}
-	
+
 	bucket = _emptyBucketList;
 	while (bucket != nullptr)
 	{
@@ -57,7 +57,7 @@ T* ObjectPoolTls<T, IsConstructorCalled>::Alloc(Args&&... args)
 {
 	TlsPool& pool = get_tls_pool();
 
-	Bucket& bucket = pool.useBucket;
+	Bucket* bucket = &pool.useBucket;
 
 	if (pool.useBucket == nullptr)
 	{
@@ -67,12 +67,12 @@ T* ObjectPoolTls<T, IsConstructorCalled>::Alloc(Args&&... args)
 		}
 		else
 		{
-			bucket = pool.freeBucket;
+			bucket = &pool.freeBucket;
 		}
 	}
 
-	Node* ret = bucket;
-	bucket = bucket->next;
+	Node* ret = *bucket;
+	*bucket = (*bucket)->next;
 
 	if constexpr (IsConstructorCalled == true)
 	{

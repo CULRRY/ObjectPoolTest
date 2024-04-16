@@ -11,7 +11,7 @@ class Test
 {
 	enum
 	{
-		NUM_THREAD = 8,
+		NUM_THREAD = 12,
 	};
 
 	struct DummyData
@@ -83,6 +83,20 @@ public:
 
 		InterlockedIncrement(&readyCount);
 		while (readyCount != NUM_THREAD);
+	}
+
+	static unsigned WINAPI TTT(void* param)
+	{
+		DataPtr* arr = new DataPtr[200000];
+		for (int i = 0; i < 100000; i++)
+		{
+			arr[i] = pool.Alloc();
+		}
+
+		for (int i = 0; i < 100000; i++)
+		{
+			pool.Free(arr[i]);
+		}
 	}
 
 	static unsigned WINAPI BenchmarkPoolAllocFree(void* param)

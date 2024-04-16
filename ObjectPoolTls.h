@@ -82,7 +82,6 @@ private:
 
 private:
 	BucketNode*		_head;
-
 	BucketNode*		_emptyBucketList;
 
 	TlsPool*		_registeredPools[64];
@@ -92,5 +91,7 @@ private:
 	Lock			_lock;
 	DWORD			_tlsIndex;
 };
+
+
 
 #include "ObjectPoolTls.hpp"
