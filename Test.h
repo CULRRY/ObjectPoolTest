@@ -1,9 +1,8 @@
 #pragma once
 #include <process.h>
+#include <fstream>
 #include "Lock.h"
 #include "ObjectPoolTls.h"
-#include "ObjectPool.h"
-
 #define TEST(dataSize) Test<dataSize> test##dataSize
 
 template <int32 Size>
@@ -11,7 +10,7 @@ class Test
 {
 	enum
 	{
-		NUM_THREAD = 12,
+		NUM_THREAD = 6,
 	};
 
 	struct DummyData
@@ -19,8 +18,8 @@ class Test
 		BYTE data[Size];
 	};
 
-	using FuncType	= unsigned(*)(void*);
-	using DataPtr	= DummyData*;
+	using FuncType = unsigned(*)(void*);
+	using DataPtr = DummyData*;
 
 
 public:
@@ -30,9 +29,21 @@ public:
 		RunThread(BenchmarkHeapAllocFree);
 
 		printf("Data Size<%d>\n", Size);
-		printf("Pool : %10.1llf us\n", GetAveragePoolTime());
 		printf("Heap : %10.1llf us\n", GetAverageHeapTime());
+		printf("Pool : %10.1llf us\n", GetAveragePoolTime());
 		printf("Faster Than x%.2llf\n\n", GetAverageHeapTime() / (int64)GetAveragePoolTime());
+		MakeCSV();
+	}
+
+
+
+	static void MakeCSV()
+	{
+		fstream fout{"ObjPoolBenchmark.csv", ios_base::app};
+
+		fout << Size << "," << GetAverageHeapTime() << "," << GetAveragePoolTime() << endl;
+
+		fout.close();
 	}
 
 	static void RunThread(FuncType func)
